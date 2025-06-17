@@ -5,6 +5,7 @@ import sys
 import os
 import logging
 import json
+import csv
 import dotenv
 
 from datetime import date, datetime
@@ -117,6 +118,13 @@ def get_args():
         "-J",
         action="store_true",
         help="Write output file in JSON format.",
+    )
+
+    parser.add_argument(
+        "--to-csv",
+        "-C",
+        action="store_true",
+        help="Write output file in CSV format.",
     )
 
     parser.add_argument(
@@ -241,6 +249,57 @@ def generate_jsondata(syncdata):
             json_data[sdt]["Percent_Hydration"] = {"Value": record["percent_hydration"], "Unit": "%"}
     logging.debug("Json data generated...")
     return json_data
+
+
+def generate_csvdata(syncdata):
+    """Generate CSV data from measured data"""
+    logging.debug("Generating CSV data...")
+
+    # Collect all possible fields from all records
+    all_fields = set()
+    for record in syncdata:
+        # Add standard fields
+        all_fields.update(record.keys())
+        # Add raw data fields
+        for dataentry in record["raw_data"]:
+            for k, v in dataentry.json_dict().items():
+                all_fields.add(k + "_value")
+                all_fields.add(k + "_unit")
+
+    # Remove raw_data from fields as we'll expand it
+    all_fields.discard("raw_data")
+
+    # Sort fields to have consistent column order
+    fieldnames = sorted(list(all_fields))
+
+    # Create rows for CSV
+    csv_rows = []
+    for record in syncdata:
+        row = {}
+        # Add standard fields
+        for field in fieldnames:
+            if field in record and field != "raw_data":
+                value = record[field]
+                # Convert datetime to string
+                if isinstance(value, datetime):
+                    row[field] = value.isoformat()
+                else:
+                    row[field] = value
+            else:
+                row[field] = ""
+
+        # Add raw data fields
+        for dataentry in record.get("raw_data", []):
+            for k, v in dataentry.json_dict().items():
+                if k + "_value" in fieldnames:
+                    row[k + "_value"] = v.get("Value", "")
+                if k + "_unit" in fieldnames:
+                    row[k + "_unit"] = v.get("Unit", "")
+
+        csv_rows.append(row)
+
+    logging.debug("CSV data generated...")
+    return csv_rows, fieldnames
 
 
 def prepare_syncdata(height, groups):
@@ -389,7 +448,7 @@ def write_to_fitfile(filename, fit_data):
         logging.error("Unable to open output fitfile! %s", filename)
 
 
-def write_to_file_when_needed(fit_data_weigth, fit_data_blood_pressure, json_data):
+def write_to_file_when_needed(fit_data_weigth, fit_data_blood_pressure, json_data, csv_data, csv_fieldnames):
     """Write measurements to file when requested"""
     if ARGS.output is not None:
         if ARGS.to_fit:
@@ -406,6 +465,17 @@ def write_to_file_when_needed(fit_data_weigth, fit_data_blood_pressure, json_dat
                     json.dump(json_data, jsonfile, indent=4)
             except OSError:
                 logging.error("Unable to open output jsonfile!")
+
+        if ARGS.to_csv:
+            filename = ARGS.output + ".csv"
+            logging.info("Writing CSV file to %s.", filename)
+            try:
+                with open(filename, "w", newline='', encoding="utf-8") as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames)
+                    writer.writeheader()
+                    writer.writerows(csv_data)
+            except OSError:
+                logging.error("Unable to open output CSV file!")
 
 
 def sync():
@@ -438,8 +508,9 @@ def sync():
 
     fit_data_weight, fit_data_blood_pressure = generate_fitdata(syncdata)
     json_data = generate_jsondata(syncdata)
+    csv_data, csv_fieldnames = generate_csvdata(syncdata)
 
-    write_to_file_when_needed(fit_data_weight, fit_data_blood_pressure, json_data)
+    write_to_file_when_needed(fit_data_weight, fit_data_blood_pressure, json_data, csv_data, csv_fieldnames)
 
     if not ARGS.no_upload:
         # get weight entries (in case of only blood_pressure)
@@ -508,4 +579,3 @@ def main():
         sys.exit(1)
 
     sync()
-
