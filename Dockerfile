@@ -14,4 +14,7 @@ COPY . /src
 RUN cd /src && \
     pip install .
 
+# Create a directory for data
+RUN mkdir -p /withings
+
 ENTRYPOINT ["withings-sync"]
