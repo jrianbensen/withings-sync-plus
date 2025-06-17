@@ -1,0 +1,20 @@
+services:
+  withings-sync:
+    container_name: withings-sync
+    image: ghcr.io/jaroslawhartman/withings-sync:master
+    ports:
+      - 7200:7200
+    volumes:
+      - ./root:/root
+      - ./withings:/withings
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - TZ=Europe/Stockholm
+      - SERVER_PORT=7200 # Port to serve on
+      - SERVE_DIRECTORY="/withings"  # Directory to serve files from
+      - BIND_ADDRESS="0.0.0.0"  # Bind address (*0.0.0.0* for all interfaces, 127.0.0.1 for localhost only)
+      - BASE_PATH="/wt"  # Base path for URL (for reverse proxy compatibility)
+    entrypoint: /root/entrypoint.sh
+networks: {}
+
+# To manual sync with csv mod: docker exec withings-sync withings-sync --fromdate 2025-01-01 --features BLOOD\_PRESSURE --to-json --to-csv --no-upload -v --output "/withings/wt_manual"
